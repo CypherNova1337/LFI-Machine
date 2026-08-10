@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lfimachine"
+version = "1.0.0"
+description = "Intelligent Local File Inclusion discovery and exploitation engine"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "VoidSec-Hub" }]
+keywords = ["security", "lfi", "path-traversal", "pentest", "web", "rce"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = ["requests>=2.25.0"]
+
+[project.urls]
+Homepage = "https://github.com/VoidSec-Hub/LFI-Machine"
+Repository = "https://github.com/VoidSec-Hub/LFI-Machine"
+Issues = "https://github.com/VoidSec-Hub/LFI-Machine/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+lfimachine = "lfimachine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lfimachine*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
