@@ -1,206 +1,163 @@
 # LFI-Machine
 
-**An intelligent Local File Inclusion discovery and exploitation engine.**
+Finds file-inclusion bugs by reasoning about the target, not by spraying `../../etc/passwd`.
 
-Most LFI tools spray a static list of `../../../etc/passwd` payloads and grep
-the response for `root:`. LFI-Machine takes a different approach: it *reasons*
-about the target. It fingerprints the stack, models normal vs. error behaviour,
-adapts traversal depth, negotiates WAF-bypass encodings, confirms disclosure
-with structural content signatures, and then escalates a confirmed inclusion to
-source-code theft and remote code execution — reusing the exact working payload
-it already discovered.
+![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)
+![python](https://img.shields.io/badge/python-3.8%2B-3776AB?style=flat-square)
 
-Built and maintained by **VoidSec-Hub**.
+## What it does
 
----
+A page loads content based on something you control:
 
-## Why it's different
+```
+https://site.example/view?page=about
+```
 
-| Capability | Typical LFI fuzzers | LFI-Machine |
-|---|---|---|
-| Detection | substring match on `root:` | structural signatures + behavioural **baseline/differential** analysis |
-| False positives | reflected payloads flagged as vulns | reflection-aware scoring, error-page suppression |
-| Traversal | fixed depth list | **adaptive depth**, multi-separator, breadth-first convergence |
-| WAF bypass | none / one encoding | pluggable **encoder pipeline** (URL, double-URL, overlong UTF-8, dot-truncation, …) |
-| Targeting | blind payload flood | **OS/tech fingerprinting** picks probes and wrappers |
-| Source theft | manual | automatic `php://filter` base64 disclosure + **secret sniffing** |
-| RCE | manual | `data://`, `php://input`, `expect://`, **PHP filter chains**, **log & `/proc/self/environ` poisoning** — all self-verified |
-| Confidence | binary | per-finding **0–100% confidence score** |
-| Output | stdout | coloured console **+ JSON/JSONL** for CI |
+If the code hands that value to the filesystem without checking it, `page` can
+be pointed somewhere else — a config file, a credentials file, a log. That's
+Local File Inclusion, and it ranges from an information leak to full code
+execution depending on what you can reach.
 
-Every escalation is **verified before it is reported** — RCE findings are only
-raised when a uniquely-marked payload is proven to have *executed*, so the
-report contains impact you can trust, not guesses.
+Most LFI tools work one way: send a list of `../../../etc/passwd` variations,
+grep the response for `root:`. That misses almost everything real. The traversal
+depth is wrong, a WAF eats the payload, the target is Windows, or the file is
+returned base64-encoded through a PHP wrapper and never contains the string
+you're grepping for.
 
----
+LFI-Machine works the problem instead. It fingerprints the stack to know which
+files are worth asking for, learns what a normal response and an error look like
+so it can tell them apart, adjusts traversal depth rather than guessing, and
+tries encodings until one survives the filter. It confirms a hit by recognising
+the *structure* of what came back — a passwd file has a shape — instead of
+matching a substring.
 
-## Installation
+Once inclusion is confirmed it can go further: pull source code through PHP
+filter chains, and attempt code execution via wrappers or log poisoning.
+
+## Why you'd use it
+
+- **Confirms by structure, not substring**, so base64 and encoded responses
+  still register.
+- **Adapts depth and encoding** rather than firing a fixed payload list.
+- **Knows the difference between error and empty**, having learned the target's
+  normal behaviour first.
+- **Escalates** — source theft and RCE attempts reuse the exact payload that
+  already worked.
+- **Tests cookies and headers too**, not only query parameters.
+
+## Install
 
 ```bash
-git clone https://github.com/VoidSec-Hub/LFI-Machine.git
+git clone https://github.com/CypherNova1337/LFI-Machine
 cd LFI-Machine
-pip install .            # installs the `lfimachine` command
-# or, without installing:
 pip install -r requirements.txt
-python -m lfimachine --help
+pip install .
 ```
 
-Requires Python 3.8+ and `requests`.
+Needs Python 3.8 or newer.
 
----
-
-## Quick start
+## Usage
 
 ```bash
-# Test a single query parameter
-lfimachine -u "http://target/index.php?page=home"
-
-# Mark an injection point explicitly anywhere in the URL with FUZZ
-lfimachine -u "http://target/view/FUZZ"
-
-# Full send: escalate to RCE and loot sensitive files
-lfimachine -u "http://target/index.php?page=home" --rce --harvest -o loot/
-
-# POST body parameter, through Burp, with aggressive encoders + JSON report
-lfimachine -u http://target/load.php -m POST --data "file=home&id=1" \
-    -p file --proxy http://127.0.0.1:8080 --aggressive --json report.json
-
-# Sweep a list of targets, 10 at a time
-lfimachine -l targets.txt --threads 10 --json out.jsonl
+lfimachine -u 'https://site.example/view?page=about'
 ```
 
-### Example output
+It tests every parameter it finds. Mark a specific spot with `FUZZ` if you want
+to be exact:
 
-```
-[+] LFI confirmed via path-traversal: GET query:page -> etc/passwd (encoder=plain, conf=0.99)
-
-════════════════════════════════════════════════════════════════════
- Scan report — http://target/index.php?page=home
-════════════════════════════════════════════════════════════════════
- Target profile : linux / apache / php
- Verdict        : VULNERABLE — 3 finding(s)
-
-[1] CRITICAL Remote Code Execution via PHP filter chain
-     technique  : php-filter-chain-rce
-     confidence : 95%
-     payload    : php://filter/convert.iconv.UTF8.CSISO2022KR|...|convert.base64-decode/resource=php://temp
-
-[2] HIGH     PHP source disclosure — config.php
-     technique  : php-filter-source
-     secrets    : db_password, db_user, db_host
-
-[3] HIGH     Local File Inclusion — etc/passwd disclosed
-     technique  : path-traversal
-     confidence : 99%
+```bash
+lfimachine -u 'https://site.example/view?page=FUZZ'
 ```
 
----
+**Only one parameter**
 
-## How it works
-
-```
-                  ┌─────────────┐
-   target ──────► │ fingerprint │  Server / X-Powered-By / cookies / errors
-                  └──────┬──────┘  → OS + language → tailored probes
-                         ▼
-                  ┌─────────────┐
-                  │  baseline   │  benign + invalid probes → length bands,
-                  └──────┬──────┘  error fingerprint, reflection detection
-                         ▼
-                  ┌─────────────┐
-                  │ path-       │  adaptive depth × separators × encoders,
-                  │ traversal   │  scored by the differential detector
-                  └──────┬──────┘
-                         ▼  (inclusion confirmed → working payload cached)
-        ┌────────────────┼─────────────────────────────┐
-        ▼                ▼                               ▼
-  php://filter     LFI → RCE                      file harvesting
-  source theft     • filter chains                pull configs / keys /
-  + secret sniff   • data:// php://input          logs, save to loot dir
-                   • expect://
-                   • log & /proc/self/environ
-                     poisoning
+```bash
+lfimachine -u 'https://site.example/view?page=about&id=1' -p page
 ```
 
-The detection stage caches the precise traversal prefix and encoder that
-worked. Every escalation technique reuses it, so the tool never rediscovers the
-vulnerability and stays fast and quiet.
+**A list of targets**
 
----
+```bash
+lfimachine -l urls.txt -o loot/
+```
+
+**Behind a login**
+
+```bash
+lfimachine -u 'https://site.example/view?page=about' --cookie 'session=abc123'
+```
+
+**Test cookies and headers as injection points**
+
+```bash
+lfimachine -u https://site.example/view --test-cookies --test-header X-Forwarded-For
+```
+
+**Push harder when a filter is in the way**
+
+```bash
+lfimachine -u 'https://site.example/view?page=FUZZ' --aggressive
+```
+
+**Go after source and RCE once you have a hit**
+
+```bash
+lfimachine -u 'https://site.example/view?page=FUZZ' --harvest --rce
+```
+
+**Through Burp**
+
+```bash
+lfimachine -u 'https://site.example/view?page=FUZZ' --proxy http://127.0.0.1:8080
+```
 
 ## Options
 
-```
-Target:
-  -u, --url URL           target URL (use FUZZ to mark a path injection point)
-  -l, --list FILE         file with one target URL per line
-  -m, --method METHOD     HTTP method (default GET)
-  --data DATA             POST body, e.g. 'file=home&id=1'
-  -p, --param NAME        only test this parameter (repeatable)
-  --cookie VALUE          Cookie header to send
-  --test-cookies          also treat cookie values as injection points
-  --test-header NAME      also inject into this request header (repeatable)
-  -H, --header 'K: V'     extra request header (repeatable)
+| Flag | Default | What it does |
+|---|---|---|
+| `-u` | — | Target URL; `FUZZ` marks a path point |
+| `-l` | — | File of target URLs |
+| `-m` | `GET` | HTTP method |
+| `--data` | — | POST body |
+| `-p` | all | Test only this parameter (repeatable) |
+| `--cookie` | — | Cookie header to send |
+| `--test-cookies` | off | Treat cookie values as injection points |
+| `--test-header` | — | Also inject into this header (repeatable) |
+| `-H` | — | Extra header (repeatable) |
+| `--min-depth` / `--max-depth` | — | Traversal depth range |
+| `--aggressive` | off | Extra WAF-bypass encoders and deeper fuzzing |
+| `--rce` | off | Attempt escalation to code execution |
+| `--harvest` | off | Pull sensitive files after confirming inclusion |
+| `--all` | off | Don't stop at the first hit |
+| `--encoder` | all | Restrict to specific encoders |
+| `--threads` | — | Concurrent workers |
+| `--rate-limit` | — | Requests per second cap |
+| `--retries` | — | Retries per request |
+| `--random-agent` | off | Rotate User-Agent |
+| `--proxy` | — | Proxy URL, e.g. Burp |
+| `-k` / `--verify-tls` | — | Skip / enforce TLS verification |
+| `-o` | — | Loot directory |
+| `--json` | — | Write results as JSON |
+| `-v` / `-q` | — | More / less output |
 
-Scan:
-  --min-depth N / --max-depth N   traversal depth range (default 1..12)
-  --aggressive            enable extra WAF-bypass encoders and deeper fuzzing
-  --rce                   attempt LFI->RCE (wrappers, filter chains, log poison)
-  --harvest               pull sensitive files after confirming inclusion
-  --all                   don't stop at first hit; exhaust every point
-  --encoder NAME          restrict to specific encoders (repeatable)
+## Good to know
 
-Network:
-  --proxy URL             route through Burp/ZAP
-  --timeout S / --retries N / --rate-limit S / --threads N
-  --random-agent          rotate the User-Agent
-  -k, --insecure          skip TLS verification (default)
-  --verify-tls            enforce TLS verification
+- **`--rce` and `--harvest` write to the target.** Log poisoning leaves entries
+  behind. Know that before you run it on someone's production box.
+- **`--aggressive` is loud.** Many more requests, many more encodings. Fine on a
+  lab, obvious in a SOC.
+- **A confirmed inclusion isn't automatically high severity.** Reading a public
+  template file is a different finding from reading credentials — check what you
+  actually reached before writing it up.
+- **Windows targets need different files.** Fingerprinting handles most of it,
+  but if a target is unusual you may need to supply paths yourself.
 
-Output:
-  -o, --loot DIR          save recovered files here
-  --json PATH             write a JSON (or JSONL for many targets) report
-  -v / -vv                verbose / debug
-  -q, --quiet             only print findings
-  --no-color / --no-banner
-```
+## Authorised use
 
-Exit codes: `0` clean, `2` vulnerable target found, `130` interrupted.
-
----
-
-## JSON report
-
-`--json` emits a structured document (one JSON object per target, JSONL when
-scanning a list) with the fingerprint, stats, and every finding including
-payload, encoder, confidence, matched signatures and evidence — ready to feed a
-pipeline or ticketing system.
-
----
-
-## Development
-
-```bash
-pip install -e ".[dev]"
-pytest            # unit + end-to-end tests (spins up a local mock vuln server)
-```
-
-The test suite includes an integration test that stands up a deliberately
-vulnerable HTTP endpoint and asserts the full engine detects it — and, just as
-importantly, that a merely-reflective endpoint is **not** flagged.
-
----
-
-## Legal & ethics
-
-LFI-Machine is a security-testing tool for **authorised** assessments only —
-penetration tests with a signed scope, bug-bounty targets within policy, CTFs,
-and lab environments you own. Using it against systems you do not have explicit
-permission to test is illegal. You are responsible for how you use it. The
-authors accept no liability for misuse.
-
----
+Only against systems you own or have written permission to test. Reading files
+off a server you don't own is unauthorised access regardless of how easy the bug
+was to find.
 
 ## License
 
-MIT © VoidSec-Hub
+MIT — see [LICENSE](LICENSE).
