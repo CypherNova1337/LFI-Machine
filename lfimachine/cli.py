@@ -31,6 +31,7 @@ from lfimachine import __version__
 from lfimachine.core.engine import Engine, ScanConfig, ScanReport
 from lfimachine.core.http import HttpClient
 from lfimachine.core.target import Target
+from lfimachine.core import discovery
 from lfimachine.payloads import encoders as enc
 from lfimachine.report import console, json_report
 from lfimachine.utils import colors
@@ -73,6 +74,11 @@ def build_parser() -> argparse.ArgumentParser:
     tgt.add_argument("--data", help="POST body, e.g. 'file=home&id=1'")
     tgt.add_argument("-p", "--param", action="append",
                      help="only test this parameter (repeatable)")
+    tgt.add_argument("--crawl", action="store_true",
+                     help="mine injectable parameters from the page's links and forms")
+    tgt.add_argument("--mine-params", action="store_true",
+                     help="also test a built-in list of common file-inclusion "
+                          "parameter names")
     tgt.add_argument("--cookie", help="Cookie header value to send")
     tgt.add_argument("--test-cookies", action="store_true",
                      help="also treat cookie values as injection points")
@@ -218,6 +224,17 @@ def run(argv: Optional[List[str]] = None) -> int:
 
     try:
         for url in targets:
+            if args.crawl or args.mine_params:
+                discovered = discovery.discover(
+                    client, url, use_wordlist=args.mine_params
+                )
+                names = [p.param for p in discovered
+                         if p.location in ("query", "form")]
+                if names:
+                    url = discovery.augment_query_url(url, names)
+                    log.info(f"Discovered {len(names)} candidate parameter(s): "
+                             + ", ".join(sorted(set(names))[:12])
+                             + (" …" if len(set(names)) > 12 else ""))
             target = Target(
                 url=url,
                 method=args.method.upper(),

@@ -32,6 +32,7 @@ from lfimachine.techniques.base import Technique, TechniqueContext
 from lfimachine.techniques.harvest import HarvestTechnique
 from lfimachine.techniques.header_lfi import HeaderLfiTechnique
 from lfimachine.techniques.log_poison import LogPoisonTechnique, ProcEnvironTechnique
+from lfimachine.techniques.session_poison import SessionPoisonTechnique
 from lfimachine.techniques.traversal import TraversalTechnique
 from lfimachine.techniques.wrappers import WrapperRceTechnique, WrapperSourceTechnique
 from lfimachine.utils.logger import Logger
@@ -83,6 +84,7 @@ class Engine:
             WrapperRceTechnique(),
             LogPoisonTechnique(),
             ProcEnvironTechnique(),
+            SessionPoisonTechnique(),
         ]
         if self.config.harvest:
             techs.append(HarvestTechnique(loot_dir=self.config.loot_dir))

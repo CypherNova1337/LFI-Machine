@@ -74,3 +74,16 @@ def test_wrapper_confirm_rejects_reflected_error():
     # genuine execution: bare marker, no PHP error, no reflected 'echo MARKER'
     executed = _resp(f"<html>{marker}</html>")
     assert t._confirm_echo(executed, marker)
+
+
+def test_session_poison_executed_is_reflection_aware():
+    from lfimachine.techniques.session_poison import SessionPoisonTechnique
+    t = SessionPoisonTechnique()
+    marker = "SPXcafebabe"
+    # session file executed: marker echoed amid serialized junk, no PHP error
+    ok = f'ua|s:24:"{marker}";'  # <- the echo already ran; only marker remains
+    assert t._executed(ok, marker)
+    # include error (wrong path / open_basedir) must not count
+    assert not t._executed(
+        f"<b>Warning</b>: include(): Failed opening 'sess_{marker}'", marker)
+    assert not t._executed("no marker here", marker)
