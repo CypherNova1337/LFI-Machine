@@ -32,6 +32,13 @@ REMEDIATION = (
 # How many payloads to dispatch per concurrent wave before checking for a hit.
 _WAVE_MULTIPLIER = 4
 
+# Adaptive pruning: after this many high-signal probes, if essentially every
+# response is just the app's error page (and near-uniform in size), stop
+# hammering a parameter that clearly never reaches the filesystem. Disabled by
+# --aggressive or an explicit --max-attempts.
+_PRUNE_AFTER = 120
+_PRUNE_RATIO = 0.98
+
 
 class TraversalTechnique(Technique):
     name = "path-traversal"
@@ -90,6 +97,11 @@ class TraversalTechnique(Technique):
         found: List[Finding] = []
         stop = threading.Event()
 
+        # Adaptive-pruning state: if a parameter shows no sign of touching the
+        # filesystem, we cut the sweep short instead of burning the full budget.
+        stats = {"n": 0, "boring": 0, "lengths": set()}
+        stats_lock = threading.Lock()
+
         def attempt(item: Tuple[str, str, str]) -> Optional[Finding]:
             if stop.is_set():
                 return None
@@ -97,6 +109,16 @@ class TraversalTechnique(Technique):
             resp = ctx.point.send(ctx.client, encoded)
             det = detector.analyse(resp, ctx.baseline, encoded,
                                    expected_signature=expected)
+            if resp.ok:
+                # "Boring" = the response is indistinguishable from the app's
+                # known error/not-found page, i.e. the payload changed nothing.
+                boring = bool(ctx.baseline and ctx.baseline.looks_like_error(resp))
+                with stats_lock:
+                    stats["n"] += 1
+                    if boring:
+                        stats["boring"] += 1
+                    if len(stats["lengths"]) < 8:
+                        stats["lengths"].add(resp.length)
             if not det.confirmed:
                 return None
             return Finding(
@@ -118,6 +140,19 @@ class TraversalTechnique(Technique):
                 extra={"detection_reason": det.reason, "raw_payload": raw},
             )
 
+        def should_prune() -> bool:
+            # After a high-signal preflight, a parameter whose responses are all
+            # the app's error page (and near-uniform in size) is very unlikely to
+            # be exploitable — stop rather than exhaust the budget.
+            if ctx.aggressive or ctx.max_attempts:
+                return False  # operator asked for exhaustive effort
+            with stats_lock:
+                n = stats["n"]
+                if n < _PRUNE_AFTER:
+                    return False
+                error_ratio = stats["boring"] / n if n else 0.0
+                return error_ratio >= _PRUNE_RATIO and len(stats["lengths"]) <= 2
+
         candidates = self._candidates(ctx, target_file, encoder_order)
 
         if workers == 1:
@@ -126,6 +161,10 @@ class TraversalTechnique(Technique):
                 if f is not None:
                     self._lock_in(ctx, f, log)
                     return f
+                if should_prune():
+                    log.verbose(f"[{self.name}] pruning {target_file}: every one of "
+                                f"{stats['n']} probes returned the error page")
+                    return None
             return None
 
         # Concurrent sweep in bounded waves so we can stop early on the first hit.
@@ -145,6 +184,10 @@ class TraversalTechnique(Technique):
                         found.append(f)
                         stop.set()
                         break
+                if not found and should_prune():
+                    log.verbose(f"[{self.name}] pruning {target_file}: every one of "
+                                f"{stats['n']} probes returned the error page")
+                    break
         if found:
             best = max(found, key=lambda x: x.confidence)
             self._lock_in(ctx, best, log)

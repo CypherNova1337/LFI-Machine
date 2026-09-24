@@ -32,7 +32,8 @@ the *structure* of what came back — a passwd file has a shape — instead of
 matching a substring.
 
 Once inclusion is confirmed it can go further: pull source code through PHP
-filter chains, and attempt code execution via wrappers or log poisoning.
+wrappers, and attempt code execution via `data://` / `php://input` wrappers or
+log poisoning.
 
 ## Why you'd use it
 

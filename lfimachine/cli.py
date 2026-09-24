@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--aggressive", action="store_true",
                       help="enable extra WAF-bypass encoders and deeper fuzzing")
     scan.add_argument("--rce", action="store_true",
-                      help="attempt LFI->RCE escalation (wrappers, filter chains, logs)")
+                      help="attempt LFI->RCE escalation (wrappers, log poisoning)")
     scan.add_argument("--harvest", action="store_true",
                       help="pull sensitive files after confirming inclusion")
     scan.add_argument("--all", action="store_true",

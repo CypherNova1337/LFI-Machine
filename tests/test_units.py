@@ -3,7 +3,7 @@ import base64
 
 from lfimachine.core import detector
 from lfimachine.core.http import Response
-from lfimachine.payloads import encoders, filter_chain, signatures, traversal_gen
+from lfimachine.payloads import encoders, signatures, traversal_gen
 
 
 def _resp(text, status=200):
@@ -59,8 +59,18 @@ def test_detector_rejects_plain_html():
     assert not det.confirmed
 
 
-def test_filter_chain_is_wellformed():
-    chain = filter_chain.build_chain("<?php echo 'HI';?>")
-    assert chain.startswith("php://filter/")
-    assert "convert.base64-decode" in chain
-    assert "resource=php://temp" in chain
+def test_wrapper_confirm_rejects_reflected_error():
+    """A failed wrapper whose payload is echoed in a PHP warning must NOT be
+    reported as code execution (real bug found against live PHP)."""
+    from lfimachine.techniques.wrappers import WrapperRceTechnique
+    t = WrapperRceTechnique()
+    marker = "LFIMXdeadbeef"
+    # expect:// unavailable -> PHP warning reflects the payload incl. the marker
+    warned = _resp(
+        f"<br /><b>Warning</b>: include(): Failed opening 'expect://echo "
+        f"{marker}' for inclusion in /var/www/index.php on line 4<br />"
+    )
+    assert not t._confirm_echo(warned, marker)
+    # genuine execution: bare marker, no PHP error, no reflected 'echo MARKER'
+    executed = _resp(f"<html>{marker}</html>")
+    assert t._confirm_echo(executed, marker)
