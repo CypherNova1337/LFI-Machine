@@ -92,13 +92,22 @@ def build_parser() -> argparse.ArgumentParser:
                       help="pull sensitive files after confirming inclusion")
     scan.add_argument("--all", action="store_true",
                       help="do not stop at first hit; exhaust every point")
+    scan.add_argument("--auto-headers", action="store_true",
+                      help="also test path-override/proxy request headers "
+                           "(X-Original-URL, X-Rewrite-URL, Referer, ...)")
+    scan.add_argument("--no-adapt", action="store_true",
+                      help="do not auto-adapt encoders/headers to a detected WAF")
     scan.add_argument("--encoder", action="append",
                       help=f"restrict to these encoders {sorted(enc.ENCODERS)}")
+    scan.add_argument("--max-attempts", type=int, default=0,
+                      help="cap requests per probed file (0 = auto: 1200, "
+                           "or 5000 with --aggressive)")
 
     net = p.add_argument_group("network")
     net.add_argument("--proxy", help="proxy URL, e.g. http://127.0.0.1:8080")
     net.add_argument("--timeout", type=float, default=12.0, help="request timeout (s)")
-    net.add_argument("--threads", type=int, default=5, help="concurrent injection points")
+    net.add_argument("--threads", type=int, default=10,
+                     help="concurrent workers for the payload sweep (default 10)")
     net.add_argument("--rate-limit", type=float, default=0.0,
                      help="min seconds between requests")
     net.add_argument("--retries", type=int, default=2, help="retries per request")
@@ -115,6 +124,8 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("-q", "--quiet", action="store_true", help="only show findings")
     out.add_argument("--no-color", action="store_true", help="disable ANSI colour")
     out.add_argument("--no-banner", action="store_true", help="suppress the banner")
+    out.add_argument("--no-progress", action="store_true",
+                     help="disable the live progress status line")
 
     p.add_argument("--version", action="version",
                    version=f"lfimachine {__version__} (VoidSec-Hub)")
@@ -190,11 +201,15 @@ def run(argv: Optional[List[str]] = None) -> int:
         rce=args.rce,
         threads=max(1, args.threads),
         stop_on_first=not args.all,
+        max_attempts=args.max_attempts,
         test_params=args.param,
         include_cookies=args.test_cookies,
         include_headers=args.test_header,
         loot_dir=args.loot,
         harvest=args.harvest or bool(args.loot),
+        auto_headers=args.auto_headers or args.aggressive,
+        adapt=not args.no_adapt,
+        progress=not args.no_progress and not args.quiet,
     )
 
     engine = Engine(client, config, log)

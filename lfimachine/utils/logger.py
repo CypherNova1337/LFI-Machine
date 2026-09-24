@@ -15,13 +15,23 @@ class Logger:
     def __init__(self, level: str = "normal") -> None:
         self.level = _LEVELS.get(level, 1)
         self._start = time.time()
+        self._sink = None  # optional callable(str) that owns the terminal line
+
+    def attach_sink(self, sink) -> None:
+        """Route persistent output through a Progress writer so the live status
+        line is cleared before each log line and repainted after."""
+        self._sink = sink
 
     def _emit(self, tag: str, msg: str, min_level: int, stream=sys.stderr) -> None:
         if self.level < min_level:
             return
+        line = f"{tag} {msg}"
         with _lock:
-            stream.write(f"{tag} {msg}\n")
-            stream.flush()
+            if self._sink is not None:
+                self._sink(line)
+            else:
+                stream.write(line + "\n")
+                stream.flush()
 
     def info(self, msg: str) -> None:
         self._emit(colors.cyan("[*]"), msg, 1)
