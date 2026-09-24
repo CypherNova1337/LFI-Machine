@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from lfimachine.core.baseline import Baseline
 from lfimachine.core.fingerprint import Fingerprint
@@ -27,6 +27,14 @@ class TechniqueContext:
     rce: bool = False
     lhost: str = ""                 # for callback-style checks / marker
     stop_on_first: bool = True
+    threads: int = 1                # worker budget for a single point's sweep
+    max_attempts: int = 0           # per-probe request cap (0 = auto by profile)
+    # Header-driven behaviour.
+    auto_headers: bool = False      # test path-override / proxy headers
+    spoof_headers: Dict[str, str] = field(default_factory=dict)
+    extra_test_headers: List[str] = field(default_factory=list)
+    # Live progress reporter (optional).
+    progress: object = None
     # Populated as techniques learn about the target.
     confirmed_traversal: Optional[str] = None   # a working traversal prefix
     confirmed_encoder: str = "plain"

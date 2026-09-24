@@ -39,11 +39,17 @@ filter chains, and attempt code execution via wrappers or log poisoning.
 - **Confirms by structure, not substring**, so base64 and encoded responses
   still register.
 - **Adapts depth and encoding** rather than firing a fixed payload list.
+- **Reads the perimeter.** It analyses response headers to identify the WAF/CDN
+  and stack, then adapts — broader encodings and source-IP headers when a filter
+  is in the way.
+- **Shows its work.** A live status line tells you what it's trying right now —
+  technique, file, request count and rate — so a run is never a silent wait.
 - **Knows the difference between error and empty**, having learned the target's
   normal behaviour first.
 - **Escalates** — source theft and RCE attempts reuse the exact payload that
   already worked.
-- **Tests cookies and headers too**, not only query parameters.
+- **Tests cookies and headers too**, not only query parameters — including
+  path-override headers like `X-Original-URL` with `--auto-headers`.
 
 ## Install
 
@@ -129,8 +135,11 @@ lfimachine -u 'https://site.example/view?page=FUZZ' --proxy http://127.0.0.1:808
 | `--rce` | off | Attempt escalation to code execution |
 | `--harvest` | off | Pull sensitive files after confirming inclusion |
 | `--all` | off | Don't stop at the first hit |
+| `--auto-headers` | off | Also test path-override/proxy headers (`X-Original-URL`, `X-Rewrite-URL`, `Referer`, …) |
+| `--no-adapt` | — | Don't auto-adapt encoders/headers to a detected WAF |
 | `--encoder` | all | Restrict to specific encoders |
-| `--threads` | — | Concurrent workers |
+| `--max-attempts` | auto | Cap requests per probed file (auto: 1200, or 5000 with `--aggressive`) |
+| `--threads` | 10 | Concurrent workers for the payload sweep |
 | `--rate-limit` | — | Requests per second cap |
 | `--retries` | — | Retries per request |
 | `--random-agent` | off | Rotate User-Agent |
@@ -138,6 +147,7 @@ lfimachine -u 'https://site.example/view?page=FUZZ' --proxy http://127.0.0.1:808
 | `-k` / `--verify-tls` | — | Skip / enforce TLS verification |
 | `-o` | — | Loot directory |
 | `--json` | — | Write results as JSON |
+| `--no-progress` | — | Disable the live status line |
 | `-v` / `-q` | — | More / less output |
 
 ## Good to know

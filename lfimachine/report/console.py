@@ -29,19 +29,37 @@ def render(report: ScanReport, stream: TextIO = sys.stdout) -> None:
 
     if report.fingerprint:
         w(f" Target profile : {report.fingerprint.summary()}\n")
+    if report.header_insights and (report.header_insights.waf or report.header_insights.cdn):
+        hi = report.header_insights
+        w(f" Perimeter      : {hi.waf or hi.cdn}\n")
     w(f" Injection pts  : {report.points_tested}\n")
     w(f" Requests sent  : {report.requests_sent}\n")
 
-    if not report.findings:
-        w("\n" + colors.green(" No LFI vulnerabilities detected.") + "\n\n")
+    # Separate real LFI findings from purely informational header notes.
+    actionable = [f for f in report.findings if f.severity.rank >= Severity.MEDIUM.rank]
+    notes = [f for f in report.findings if f.severity.rank < Severity.MEDIUM.rank]
+
+    if not actionable:
+        w("\n" + colors.green(" No LFI vulnerabilities detected.") + "\n")
+        if notes:
+            w("\n" + colors.grey(" Informational:") + "\n")
+            for f in notes:
+                w(f"   {_sev_label(f.severity)} {f.title}\n")
+        w("\n")
         return
 
     verdict = (colors.red("VULNERABLE") if report.vulnerable
                else colors.yellow("SUSPICIOUS"))
-    w(f" Verdict        : {verdict} — {len(report.findings)} finding(s)\n\n")
+    w(f" Verdict        : {verdict} — {len(actionable)} finding(s)\n\n")
 
-    for i, f in enumerate(report.findings, 1):
+    for i, f in enumerate(actionable, 1):
         _render_finding(w, i, f)
+
+    if notes:
+        w(colors.grey(" Informational:") + "\n")
+        for f in notes:
+            w(f"   {_sev_label(f.severity)} {f.title} — {colors.grey(f.evidence[:80])}\n")
+        w("\n")
 
     w(colors.grey("─" * 68) + "\n")
 
