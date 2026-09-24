@@ -32,7 +32,8 @@ the *structure* of what came back — a passwd file has a shape — instead of
 matching a substring.
 
 Once inclusion is confirmed it can go further: pull source code through PHP
-filter chains, and attempt code execution via wrappers or log poisoning.
+wrappers, and attempt code execution via `data://` / `php://input` wrappers,
+session poisoning, or log poisoning.
 
 ## Why you'd use it
 
@@ -50,6 +51,9 @@ filter chains, and attempt code execution via wrappers or log poisoning.
   already worked.
 - **Tests cookies and headers too**, not only query parameters — including
   path-override headers like `X-Original-URL` with `--auto-headers`.
+- **Finds the parameters for you.** Point it at a bare URL with `--crawl` and it
+  mines injectable parameters from the page's links and forms (add
+  `--mine-params` to also try common inclusion parameter names).
 
 ## Install
 
@@ -99,6 +103,12 @@ lfimachine -u 'https://site.example/view?page=about' --cookie 'session=abc123'
 lfimachine -u https://site.example/view --test-cookies --test-header X-Forwarded-For
 ```
 
+**Don't know the parameter? Let it find one**
+
+```bash
+lfimachine -u 'https://site.example/' --crawl --mine-params
+```
+
 **Push harder when a filter is in the way**
 
 ```bash
@@ -126,6 +136,8 @@ lfimachine -u 'https://site.example/view?page=FUZZ' --proxy http://127.0.0.1:808
 | `-m` | `GET` | HTTP method |
 | `--data` | — | POST body |
 | `-p` | all | Test only this parameter (repeatable) |
+| `--crawl` | off | Mine injectable parameters from the page's links and forms |
+| `--mine-params` | off | Also test a built-in list of common inclusion parameter names |
 | `--cookie` | — | Cookie header to send |
 | `--test-cookies` | off | Treat cookie values as injection points |
 | `--test-header` | — | Also inject into this header (repeatable) |

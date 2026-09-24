@@ -5,7 +5,7 @@ Unlike traditional fuzzers that spray a static list of ``../../../etc/passwd``
 payloads, LFI-Machine reasons about the target: it fingerprints the stack,
 establishes a response baseline, adapts traversal depth, negotiates WAF
 encodings, and escalates confirmed inclusions to source disclosure and remote
-code execution using PHP wrappers, filter chains and log poisoning.
+code execution using PHP wrappers and log poisoning.
 """
 
 __title__ = "lfimachine"

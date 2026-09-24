@@ -112,3 +112,40 @@ def test_engine_reports_clean_on_safe_endpoint(vuln_server):
         assert not report.vulnerable, "reflected input must not trigger a finding"
     finally:
         server.shutdown()
+
+
+def test_engine_prunes_uniform_error_endpoint():
+    """A parameter that always returns the same error page should be pruned
+    fast, well under the full per-probe budget."""
+
+    class _UniformHandler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            parsed = urlparse(self.path)
+            page = parse_qs(parsed.query).get("page", [""])[0]
+            body = ("<html>home</html>" if page in ("", "home", "index")
+                    else "<html>file not found</html>")
+            data = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    server = HTTPServer(("127.0.0.1", 0), _UniformHandler)
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        client = HttpClient(timeout=5, retries=0)
+        engine = Engine(client, ScanConfig(threads=8), Logger("quiet"))
+        report = engine.scan(Target(url=f"http://127.0.0.1:{port}/index.php?page=home"))
+        client.close()
+        assert not report.vulnerable
+        # Full budget would be ~1200 * 3 probes; pruning must cut this hard.
+        assert report.requests_sent < 800, (
+            f"pruning did not engage: {report.requests_sent} requests")
+    finally:
+        server.shutdown()
+

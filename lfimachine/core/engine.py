@@ -29,10 +29,10 @@ from lfimachine.core.result import Finding, Severity
 from lfimachine.core.target import InjectionPoint, Target
 from lfimachine.payloads import encoders as enc
 from lfimachine.techniques.base import Technique, TechniqueContext
-from lfimachine.techniques.filter_chain_rce import FilterChainRceTechnique
 from lfimachine.techniques.harvest import HarvestTechnique
 from lfimachine.techniques.header_lfi import HeaderLfiTechnique
 from lfimachine.techniques.log_poison import LogPoisonTechnique, ProcEnvironTechnique
+from lfimachine.techniques.session_poison import SessionPoisonTechnique
 from lfimachine.techniques.traversal import TraversalTechnique
 from lfimachine.techniques.wrappers import WrapperRceTechnique, WrapperSourceTechnique
 from lfimachine.utils.logger import Logger
@@ -81,10 +81,10 @@ class Engine:
             TraversalTechnique(),
             HeaderLfiTechnique(),
             WrapperSourceTechnique(),
-            FilterChainRceTechnique(),
             WrapperRceTechnique(),
             LogPoisonTechnique(),
             ProcEnvironTechnique(),
+            SessionPoisonTechnique(),
         ]
         if self.config.harvest:
             techs.append(HarvestTechnique(loot_dir=self.config.loot_dir))
